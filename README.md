@@ -138,6 +138,11 @@
 
 本工具支持通过 **PATH路径** 动态切换底层代理方案：
 
+- 管理面板支持维护多套反代配置并切换当前生效配置：
+   ```url
+   /admin/proxy-profiles
+   ```
+
 - 指定 `PROXYIP` 案例
    ```url
    /proxyip=proxyip.cmliussss.net

@@ -4315,7 +4315,7 @@ async function 处理反代配置集操作(env, 配置, payload = {}) {
 async function 注入后台反代配置选择器(response) {
 	const contentType = response.headers.get('content-type') || '';
 	if (!contentType.toLowerCase().includes('text/html')) return response;
-	const html = await response.text();
+	const html = (await response.text()).replaceAll('edgetunnel 设置页面', '管理界面');
 	const 注入内容 = 后台反代配置选择器HTML();
 	const bodyEnd = /<\/body\s*>/i;
 	const 注入后HTML = bodyEnd.test(html) ? html.replace(bodyEnd, 注入内容 + '</body>') : html + 注入内容;

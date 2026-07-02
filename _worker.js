@@ -310,11 +310,11 @@ export default {
 						return new Response(本地优选IP, { status: 200, headers: { 'Content-Type': 'text/plain;charset=utf-8', 'asn': request.cf.asn } });
 					} else if (访问路径 === 'admin/cf.json') {// CF配置文件
 						return new Response(JSON.stringify(request.cf, null, 2), { status: 200, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
-					}
+						}
 
-					ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Admin_Login', config_JSON));
-					return fetch(Pages静态页面 + '/admin' + url.search);
-				} else if (访问路径 === 'logout' || uuidRegex.test(访问路径)) {//清除cookie并跳转到登录页面
+						ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Admin_Login', config_JSON));
+						return await 注入后台反代配置选择器(await fetch(Pages静态页面 + '/admin' + url.search));
+					} else if (访问路径 === 'logout' || uuidRegex.test(访问路径)) {//清除cookie并跳转到登录页面
 					const 响应 = new Response('重定向中...', { status: 302, headers: { 'Location': '/login' } });
 					响应.headers.set('Set-Cookie', 'auth=; Path=/; Max-Age=0; HttpOnly');
 					return 响应;
@@ -4310,6 +4310,94 @@ async function 处理反代配置集操作(env, 配置, payload = {}) {
 	初始化反代配置集(配置);
 	await env.KV.put('config.json', JSON.stringify(配置, null, 2));
 	return { message: '反代配置已保存', ...构建反代配置集响应(配置) };
+}
+
+async function 注入后台反代配置选择器(response) {
+	const contentType = response.headers.get('content-type') || '';
+	if (!contentType.toLowerCase().includes('text/html')) return response;
+	const html = await response.text();
+	const 注入内容 = 后台反代配置选择器HTML();
+	const bodyEnd = /<\/body\s*>/i;
+	const 注入后HTML = bodyEnd.test(html) ? html.replace(bodyEnd, 注入内容 + '</body>') : html + 注入内容;
+	const headers = new Headers(response.headers);
+	headers.delete('content-length');
+	headers.delete('content-security-policy');
+	headers.set('Cache-Control', 'no-store');
+	headers.set('Content-Type', contentType || 'text/html;charset=utf-8');
+	return new Response(注入后HTML, { status: response.status, statusText: response.statusText, headers });
+}
+
+function 后台反代配置选择器HTML() {
+	return `<style>
+#edtProxySwitch{position:fixed;right:18px;bottom:18px;z-index:2147483647;display:flex;align-items:center;gap:8px;max-width:calc(100vw - 36px);padding:10px 12px;border:1px solid rgba(120,130,150,.32);border-radius:8px;background:rgba(255,255,255,.96);box-shadow:0 12px 32px rgba(15,23,42,.16);color:#18202a;font:13px/1.4 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backdrop-filter:blur(8px)}
+#edtProxySwitch label{font-weight:600;white-space:nowrap}
+#edtProxySwitch select{min-width:150px;max-width:230px;border:1px solid rgba(120,130,150,.45);border-radius:6px;background:#fff;color:#18202a;padding:7px 28px 7px 9px;font:inherit}
+#edtProxySwitch button,#edtProxySwitch a{border:1px solid rgba(120,130,150,.45);border-radius:6px;background:#fff;color:#18202a;padding:7px 10px;font:inherit;text-decoration:none;cursor:pointer;white-space:nowrap}
+#edtProxySwitch button.primary{border-color:#0f766e;background:#0f766e;color:#fff}
+#edtProxySwitchStatus{max-width:180px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (prefers-color-scheme:dark){#edtProxySwitch{background:rgba(23,27,33,.96);color:#eef1f5;border-color:rgba(148,163,184,.32);box-shadow:0 12px 32px rgba(0,0,0,.34)}#edtProxySwitch select,#edtProxySwitch button,#edtProxySwitch a{background:#171b21;color:#eef1f5;border-color:rgba(148,163,184,.42)}#edtProxySwitchStatus{color:#9aa4b2}}
+@media (max-width:640px){#edtProxySwitch{left:10px;right:10px;bottom:10px;flex-wrap:wrap}#edtProxySwitch select{flex:1;min-width:0;max-width:none}#edtProxySwitchStatus{width:100%;max-width:none}}
+</style>
+<div id="edtProxySwitch" aria-label="反代配置切换">
+  <label for="edtProxySwitchSelect">反代</label>
+  <select id="edtProxySwitchSelect"></select>
+  <button id="edtProxySwitchApply" class="primary" type="button">启用</button>
+  <a href="/admin/proxy-profiles">维护</a>
+  <span id="edtProxySwitchStatus"></span>
+</div>
+<script>
+(function(){
+  var box = document.getElementById('edtProxySwitch');
+  var select = document.getElementById('edtProxySwitchSelect');
+  var apply = document.getElementById('edtProxySwitchApply');
+  var status = document.getElementById('edtProxySwitchStatus');
+  if (!box || !select || !apply || !status) return;
+  function setStatus(text){ status.textContent = text || ''; }
+  function profileLabel(id, profile, active){
+    var socks = profile && profile.SOCKS5 ? profile.SOCKS5 : {};
+    var type = socks.启用 || 'PROXYIP';
+    return (profile && profile.名称 ? profile.名称 : id) + (active ? '（当前）' : '') + ' - ' + String(type).toUpperCase();
+  }
+  async function load(){
+    setStatus('读取中...');
+    var res = await fetch('/admin/proxy-profiles.json', { cache: 'no-store' });
+    var data = await res.json();
+    if (!res.ok || data.success === false) throw new Error(data.error || '读取失败');
+    select.innerHTML = '';
+    Object.keys(data.profiles || {}).forEach(function(id){
+      var option = document.createElement('option');
+      option.value = id;
+      option.textContent = profileLabel(id, data.profiles[id], id === data.active);
+      select.appendChild(option);
+    });
+    select.value = data.active || select.value;
+    apply.disabled = !select.value;
+    setStatus(data.active ? '当前：' + data.active : '未配置');
+  }
+  async function switchProfile(){
+    if (!select.value) return;
+    apply.disabled = true;
+    setStatus('切换中...');
+    try {
+      var res = await fetch('/admin/proxy-profiles.json', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'switch', id: select.value })
+      });
+      var data = await res.json();
+      if (!res.ok || data.success === false) throw new Error(data.error || '切换失败');
+      await load();
+      setStatus('已启用：' + data.active);
+    } catch (err) {
+      setStatus(err.message || '切换失败');
+    } finally {
+      apply.disabled = false;
+    }
+  }
+  apply.addEventListener('click', switchProfile);
+  load().catch(function(err){ setStatus(err.message || '读取失败'); });
+})();
+</script>`;
 }
 
 function 反代配置集管理页面() {
